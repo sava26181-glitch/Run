@@ -1,4 +1,4 @@
-name: Build APK + IPA
+name: Build APK + IPA (C++)
 
 on:
   push:
@@ -13,55 +13,75 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Unpack project zip
-        run: for z in *.zip; do [ -f "$z" ] && unzip -o -q "$z"; done; ls
-
+        run: if [ -f MotoStunt-cpp.zip ]; then unzip -o -q MotoStunt-cpp.zip; else for z in *.zip; do [ -f "$z" ] && unzip -o -q "$z"; done; fi; ls
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
-
       - name: Build APK
         run: |
+          NDKV=$(ls "$ANDROID_HOME/ndk" | sort -V | tail -1)
+          echo "NDK: $NDKV"
+          cd android
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          gradle assembleRelease --no-daemon --stacktrace
-          mkdir -p out
-          cp app/build/outputs/apk/release/*.apk out/MotoStunt.apk
-
+          gradle assembleRelease --no-daemon --stacktrace -PndkVer=$NDKV
+          mkdir -p ../out
+          cp app/build/outputs/apk/release/*.apk ../out/MotoStunt.apk
       - uses: actions/upload-artifact@v4
         with:
           name: MotoStunt-apk
           path: out/MotoStunt.apk
 
+  web:
+    name: Web (WebAssembly)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack project zip
+        run: if [ -f MotoStunt-cpp.zip ]; then unzip -o -q MotoStunt-cpp.zip; else for z in *.zip; do [ -f "$z" ] && unzip -o -q "$z"; done; fi; ls
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.74
+      - name: Build WASM
+        run: |
+          emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-web -j4
+          ls -la build-web
+          mkdir -p web-out
+          cp build-web/motostunt.html web-out/index.html
+          [ -f build-web/motostunt.js ] && cp build-web/motostunt.js web-out/ || true
+          ls -la web-out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MotoStunt-web
+          path: web-out
+
   ios:
     name: iOS IPA
+    needs: web
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-
       - name: Unpack project zip
-        run: for z in *.zip; do [ -f "$z" ] && unzip -o -q "$z"; done; ls
-
+        run: if [ -f MotoStunt-cpp.zip ]; then unzip -o -q MotoStunt-cpp.zip; else for z in *.zip; do [ -f "$z" ] && unzip -o -q "$z"; done; fi; ls
+      - uses: actions/download-artifact@v4
+        with:
+          name: MotoStunt-web
+          path: ios/MotoStunt
       - name: Install XcodeGen
         run: brew install xcodegen
-
       - name: Generate Xcode project
-        run: |
-          cp app/src/main/assets/index.html ios/MotoStunt/index.html
-          cd ios && xcodegen generate
-
+        run: cd ios && ls MotoStunt && xcodegen generate
       - name: Build (unsigned)
         run: |
           cd ios
           xcodebuild -project MotoStunt.xcodeproj -scheme MotoStunt -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
-
       - name: Package IPA
         run: |
           cd ios
@@ -69,7 +89,6 @@ jobs:
           cp -R build/Build/Products/Release-iphoneos/MotoStunt.app Payload/
           zip -qry MotoStunt.ipa Payload
           mkdir -p ../out && cp MotoStunt.ipa ../out/
-
       - uses: actions/upload-artifact@v4
         with:
           name: MotoStunt-ipa
@@ -84,15 +103,16 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-
+      - name: List files
+        run: ls -la dist
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: Мото Стант — сборка ${{ github.run_number }}
+          tag_name: cpp-build-${{ github.run_number }}
+          name: Мото Стант (C++) — сборка ${{ github.run_number }}
           body: |
-            📱 **MotoStunt.apk** — Android: скачать и установить.
-            🍏 **MotoStunt.ipa** — iPhone: установить через Sideloadly / AltStore.
+            Android: MotoStunt.apk — скачать и установить.
+            iPhone: MotoStunt.ipa — установить через Sideloadly / AltStore.
           files: |
             dist/MotoStunt.apk
             dist/MotoStunt.ipa
