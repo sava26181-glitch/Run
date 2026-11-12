@@ -1,0 +1,8 @@
+{
+  "name": "motostunt-server",
+  "version": "1.0.0",
+  "description": "Мото Стант — мультиплеер-сервер (без зависимостей)",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" }
+}
